@@ -13,7 +13,11 @@
 import type { PermissionOption, RequestPermissionResponse, ToolCallUpdate } from "@agentclientprotocol/sdk";
 
 export const PERMISSION_MARKER = "__NOTESAGE_PERMISSION__";
-const ALLOW = "Allow";
+// Exported so test/protocol-constants.test.ts can lock it against the shipped
+// permission-gate extension's copy — pi loads that extension standalone in its
+// own process, so the two halves of this protocol cannot share an import and
+// can only be kept in sync by assertion.
+export const ALLOW = "Allow";
 
 export interface PermissionUiRequest {
   id: string;
