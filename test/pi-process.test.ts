@@ -8,23 +8,42 @@ import { PiProcess } from "../src/pi-process";
 const FAKE_PI = join(dirname(fileURLToPath(import.meta.url)), "fake-pi");
 
 import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 
 // A pid counts as gone when kill(0) fails OR the process is a zombie —
 // a reparented grandchild can linger as an unreaped zombie after group-kill,
 // and kill(pid, 0) still succeeds on zombies.
+//
+// The zombie probe MUST be platform-aware: macOS has no /proc, so the old
+// Linux-only readFileSync("/proc/<pid>/stat") threw for every live process and
+// the catch reported it as gone. That made `gone()` return true unconditionally
+// on macOS — which silently turned the orphan-kill assertions below into
+// vacuous passes on this project's PRIMARY target platform. Keep both paths.
+function zombieOrGone(pid: number): boolean {
+  if (process.platform === "linux") {
+    try {
+      const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+      const state = stat.slice(stat.lastIndexOf(")") + 2).split(" ")[0];
+      return state === "Z" || state === "X";
+    } catch {
+      return true; // /proc entry vanished between the two probes
+    }
+  }
+  // macOS/BSD: `ps -o state=` reports a zombie as a state starting with "Z".
+  // Empty stdout means the pid vanished between the two probes.
+  const out = spawnSync("ps", ["-o", "state=", "-p", String(pid)], { encoding: "utf8" });
+  const state = (out.stdout ?? "").trim();
+  if (!state) return true;
+  return state.startsWith("Z");
+}
+
 function gone(pid: number): boolean {
   try {
     process.kill(pid, 0);
   } catch {
     return true;
   }
-  try {
-    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
-    const state = stat.slice(stat.lastIndexOf(")") + 2).split(" ")[0];
-    return state === "Z" || state === "X";
-  } catch {
-    return true; // /proc entry vanished between the two probes
-  }
+  return zombieOrGone(pid);
 }
 
 async function waitGone(pid: number, timeoutMs = 3000): Promise<boolean> {
