@@ -1,9 +1,16 @@
 {
   "name": "notesage-pi-acp",
   "version": "0.1.0",
+  "// private": "Shipped as self-contained binaries on GitHub releases, not via npm — running it needs no Node or Bun runtime. Guards against an accidental publish.",
   "private": true,
   "type": "module",
-  "description": "ACP <-> pi RPC bridge: presents the Agent Client Protocol on stdio and drives a `pi --mode rpc` child process (Notesage pi Local Agent preset)",
+  "description": "ACP <-> pi RPC adapter: presents the Agent Client Protocol on stdio and drives a `pi --mode rpc` child process, with permission gating, MCP pass-through, and cancellation",
+  "license": "MIT",
+  "author": "Peter Blenessy",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PeterBlenessy/notesage-pi-acp.git"
+  },
   "engines": {
     "node": ">=22"
   },
