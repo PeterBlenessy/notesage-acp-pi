@@ -9,7 +9,7 @@
   "author": "Peter Blenessy",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/PeterBlenessy/notesage-pi-acp.git"
+    "url": "git+https://github.com/PeterBlenessy/notesage-acp-pi.git"
   },
   "engines": {
     "node": ">=22"

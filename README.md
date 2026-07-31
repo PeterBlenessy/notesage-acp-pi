@@ -72,7 +72,7 @@ no pi grandchildren survive the adapter exiting.
 ## Install
 
 Self-contained platform binaries are published on the
-[releases page](https://github.com/PeterBlenessy/notesage-pi-acp/releases) with a
+[releases page](https://github.com/PeterBlenessy/notesage-acp-pi/releases) with a
 `SHA256SUMS` manifest. No Node or Bun runtime is required to run them.
 
 ## Development
