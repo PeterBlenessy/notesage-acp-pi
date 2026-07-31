@@ -1,4 +1,4 @@
-# notesage-pi-acp
+# notesage-acp-pi
 
 An [Agent Client Protocol](https://agentclientprotocol.com) (ACP) adapter for
 [pi](https://github.com/earendil-works/pi).
@@ -26,7 +26,7 @@ established choice.
 ## How it works
 
 ```
-ACP client  <--stdio/ACP-->  notesage-pi-acp  <--stdio/JSONL-->  pi --mode rpc
+ACP client  <--stdio/ACP-->  notesage-acp-pi  <--stdio/JSONL-->  pi --mode rpc
 ```
 
 - **Sessions.** ACP `sessionId` *is* pi's session file path — opaque to the
@@ -55,14 +55,14 @@ wedges pi. The deny and timeout paths answer the pending UI request
 ## Usage
 
 ```
-notesage-pi-acp --pi-bin <path-to-pi> -- [pi args...]
+notesage-acp-pi --pi-bin <path-to-pi> -- [pi args...]
 ```
 
 Everything after `--` is passed through to pi, so the host can regenerate
 provider/model/session arguments and respawn on change:
 
 ```
-notesage-pi-acp --pi-bin /usr/local/bin/pi -- \
+notesage-acp-pi --pi-bin /usr/local/bin/pi -- \
   --provider local --model qwen3-8b --session-dir ~/.pi/sessions
 ```
 
@@ -87,7 +87,7 @@ The real-pi and compiled-binary suites are opt-in — they skip unless pointed a
 real binaries:
 
 ```bash
-PI_BINARY=/path/to/pi BRIDGE_BINARY=/path/to/compiled/notesage-pi-acp pnpm test
+PI_BINARY=/path/to/pi BRIDGE_BINARY=/path/to/compiled/notesage-acp-pi pnpm test
 ```
 
 Build release binaries (requires [Bun](https://bun.sh), build-time only):
