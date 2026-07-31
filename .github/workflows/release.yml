@@ -48,5 +48,5 @@ jobs:
             --repo "${{ github.repository }}" \
             --title "${{ github.ref_name }}" \
             --generate-notes \
-            dist/notesage-pi-acp-*.tar.gz \
-            dist/notesage-pi-acp-SHA256SUMS
+            dist/notesage-acp-pi-*.tar.gz \
+            dist/notesage-acp-pi-SHA256SUMS
