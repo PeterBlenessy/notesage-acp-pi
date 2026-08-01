@@ -14,11 +14,12 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
-import { PERMISSION_MARKER, ALLOW } from "../src/permissions";
+import { PERMISSION_MARKER, ALLOW, BLOCK_REASON_PREFIX } from "../src/permissions";
 import { MCP_SERVERS_ENV } from "../src/mcp-handoff";
 import {
   PERMISSION_MARKER as EXT_PERMISSION_MARKER,
   ALLOW as EXT_ALLOW,
+  BLOCK_REASON_PREFIX as EXT_BLOCK_REASON_PREFIX,
 } from "../extensions/permission-gate";
 
 const EXT_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "extensions");
@@ -33,6 +34,21 @@ describe("adapter <-> extension protocol constants", () => {
     // treats anything !== its own ALLOW as a denial. A mismatch turns every
     // approval into a silent block.
     expect(EXT_ALLOW).toBe(ALLOW);
+  });
+
+  it("the block-reason prefix matches — the broker prepends it, the gate strips it", () => {
+    // The bridge settles a select with BLOCK_REASON_PREFIX + text so a
+    // mode-driven refusal can explain itself to the model. On a mismatch the
+    // gate stops recognising the prefix and the whole marker string leaks into
+    // the model's context as the block reason.
+    expect(EXT_BLOCK_REASON_PREFIX).toBe(BLOCK_REASON_PREFIX);
+  });
+
+  it("the two answer constants can't be confused for one another", () => {
+    // ALLOW is compared by equality and the prefix by startsWith; if ALLOW ever
+    // began with the prefix (or vice versa) one branch would shadow the other.
+    expect(ALLOW.startsWith(BLOCK_REASON_PREFIX)).toBe(false);
+    expect(BLOCK_REASON_PREFIX.startsWith(ALLOW)).toBe(false);
   });
 
   it("the MCP handoff env key matches the name the extension reads", () => {

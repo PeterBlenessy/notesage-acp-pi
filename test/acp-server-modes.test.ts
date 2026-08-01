@@ -106,6 +106,47 @@ describe("session modes", () => {
     await expect(agent.setSessionMode({ sessionId, modeId: "nope" })).rejects.toThrow(/nope/);
   });
 
+  it("rejects an unknown session rather than recording policy nothing reads", async () => {
+    // Succeeding silently would let a client believe it had tightened a
+    // session that then keeps running under the old mode.
+    const { agent } = makeAgent(async () => ({ outcome: { outcome: "cancelled" } }));
+    await agent.newSession({ cwd: "/tmp", mcpServers: [] });
+    await expect(
+      agent.setSessionMode({ sessionId: "/not/a/real/session.jsonl", modeId: MODE_READ_ONLY }),
+    ).rejects.toThrow(/Unknown session/);
+  });
+
+  it("keeps each session's mode separate when switching between them", async () => {
+    // One shared field would leak the restricted session's policy into the
+    // other — or worse, leak the permissive one back.
+    const { agent, asked } = makeAgent(async () => ({
+      outcome: { outcome: "selected", optionId: "allow_once" },
+    }));
+    const a = (await agent.newSession({ cwd: "/tmp", mcpServers: [] })).sessionId;
+    const b = (await agent.newSession({ cwd: "/tmp", mcpServers: [] })).sessionId;
+    await agent.setSessionMode({ sessionId: a, modeId: MODE_READ_ONLY });
+    await agent.setSessionMode({ sessionId: b, modeId: MODE_FULL_ACCESS });
+
+    await agent.prompt({ sessionId: a, prompt: [{ type: "text", text: "write it" }] });
+    await agent.prompt({ sessionId: b, prompt: [{ type: "text", text: "write it" }] });
+
+    // Neither reached the host, and each was governed by its own policy.
+    expect(asked).toHaveLength(0);
+    expect((await agent.loadSession({ sessionId: a, cwd: "/tmp", mcpServers: [] })).modes?.currentModeId)
+      .toBe(MODE_READ_ONLY);
+    expect((await agent.loadSession({ sessionId: b, cwd: "/tmp", mcpServers: [] })).modes?.currentModeId)
+      .toBe(MODE_FULL_ACCESS);
+  });
+
+  it("setting a session back to the default clears it rather than remembering it", async () => {
+    const { agent } = makeAgent(async () => ({ outcome: { outcome: "cancelled" } }));
+    const { sessionId } = await agent.newSession({ cwd: "/tmp", mcpServers: [] });
+    await agent.setSessionMode({ sessionId, modeId: MODE_READ_ONLY });
+    await agent.setSessionMode({ sessionId, modeId: MODE_AGENT });
+    const loaded = await agent.loadSession({ sessionId, cwd: "/tmp", mcpServers: [] });
+    expect(loaded.modes?.currentModeId).toBe(MODE_AGENT);
+  });
+
   it("re-advertises the session's own mode on session/load, not the default", async () => {
     const { agent } = makeAgent(async () => ({ outcome: { outcome: "cancelled" } }));
     const { sessionId } = await agent.newSession({ cwd: "/tmp", mcpServers: [] });

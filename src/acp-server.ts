@@ -35,7 +35,7 @@ import {
   type SetSessionModeResponse,
 } from "@agentclientprotocol/sdk";
 import { mcpEnvFor, mcpKeyFor } from "./mcp-handoff";
-import { DEFAULT_MODE_ID, decisionForMode, isKnownMode, modeState } from "./modes";
+import { DEFAULT_MODE_ID, isKnownMode, modeState, policyForMode } from "./modes";
 import { PiRpc, type PiRpcOptions } from "./pi-rpc";
 import { PermissionBroker, type AcpPermissionAsk } from "./permissions";
 import { PiEventTranslator, type SessionUpdate } from "./translate";
@@ -85,10 +85,19 @@ export class PiAcpAgent implements Agent {
   /** MCP handoff snapshot the live pi child was spawned with (its extension
    *  reads the env at startup) — a different set requires a respawn. */
   private currentMcpKey: string | null = null;
-  /** ACP sessionId → mode id. Modes are per-session in ACP, and the bridge can
-   *  switch sessions (load/fork), so a single field would leak one session's
-   *  policy into another. Absent → DEFAULT_MODE_ID. */
+  /** ACP sessionId → mode id, for sessions whose mode is NOT the default.
+   *  Modes are per-session in ACP, and the bridge can switch sessions
+   *  (load/fork), so a single field would leak one session's policy into
+   *  another. Absent → DEFAULT_MODE_ID, which is why storing defaults would be
+   *  pure overhead: this only grows when a user actively restricts or widens a
+   *  session. Deliberately NOT an LRU — evicting an entry silently returns a
+   *  restricted session to the default, which is a widening the user never
+   *  asked for; a few hundred bytes of growth is the cheaper trade. */
   private readonly sessionModes = new Map<string, string>();
+  /** Sessions this bridge has created or loaded, so setSessionMode can reject
+   *  an id nothing will ever read. Grows one short string per session touched
+   *  in the process's lifetime. */
+  private readonly knownSessions = new Set<string>();
 
   constructor(private readonly opts: PiAcpAgentOptions) {
     this.translator = new PiEventTranslator((update) => {
@@ -115,7 +124,13 @@ export class PiAcpAgent implements Agent {
           this.pi?.notify({ type: "extension_ui_response", ...response });
         },
         this.opts.permissionSafetyTimeoutMs,
-        () => decisionForMode(this.modeFor(this.activeSession)),
+        () => policyForMode(this.modeFor(this.activeSession)),
+        (message) => {
+          const mode = this.modeFor(this.activeSession);
+          // stderr, which the host captures into its agent log — the only
+          // record that exists for a call the host was never asked about.
+          process.stderr.write(`[notesage-acp-pi] mode=${mode} ${message}\n`);
+        },
       );
       this.broker = broker;
       this.pi = this.opts.spawnPi({ cwd, extraEnv: mcpEnvFor(mcpServers) }, (e) => {
@@ -140,6 +155,12 @@ export class PiAcpAgent implements Agent {
   private modeFor(sessionId: string | null): string {
     if (!sessionId) return DEFAULT_MODE_ID;
     return this.sessionModes.get(sessionId) ?? DEFAULT_MODE_ID;
+  }
+
+  /** Record a session's mode, storing nothing for the default (see field doc). */
+  private setModeFor(sessionId: string, modeId: string): void {
+    if (modeId === DEFAULT_MODE_ID) this.sessionModes.delete(sessionId);
+    else this.sessionModes.set(sessionId, modeId);
   }
 
   private async activate(pi: PiRpc, sessionId: string): Promise<void> {
@@ -168,6 +189,7 @@ export class PiAcpAgent implements Agent {
     const pi = await this.ensurePi(params.cwd, params.mcpServers);
     await pi.request({ type: "new_session" });
     const sessionId = await this.currentSessionId(pi);
+    this.knownSessions.add(sessionId);
     this.activeSession = sessionId;
     return { sessionId, modes: modeState(this.modeFor(sessionId)) };
   }
@@ -175,6 +197,7 @@ export class PiAcpAgent implements Agent {
   async loadSession(params: LoadSessionRequest): Promise<LoadSessionResponse> {
     const pi = await this.ensurePi(params.cwd, params.mcpServers);
     await this.activate(pi, params.sessionId);
+    this.knownSessions.add(params.sessionId);
     // Re-advertise on load: the client rebuilds its picker from this response,
     // and a resumed session must not silently fall back to the default.
     return { modes: modeState(this.modeFor(params.sessionId)) };
@@ -184,7 +207,13 @@ export class PiAcpAgent implements Agent {
     if (!isKnownMode(params.modeId)) {
       throw new Error(`Unknown session mode: ${params.modeId}`);
     }
-    this.sessionModes.set(params.sessionId, params.modeId);
+    // Reject an unknown session rather than recording policy for an id nothing
+    // will ever read: silently succeeding would let a client believe it had
+    // tightened a session that then keeps running under the old mode.
+    if (!this.knownSessions.has(params.sessionId)) {
+      throw new Error(`Unknown session: ${params.sessionId}`);
+    }
+    this.setModeFor(params.sessionId, params.modeId);
     return {};
   }
 
@@ -196,7 +225,8 @@ export class PiAcpAgent implements Agent {
     // A fork inherits the parent's mode: the branch continues the same work
     // under the same policy, so silently widening it back to the default would
     // be a permission escalation the user never asked for.
-    this.sessionModes.set(sessionId, this.modeFor(params.sessionId));
+    this.knownSessions.add(sessionId);
+    this.setModeFor(sessionId, this.modeFor(params.sessionId));
     this.activeSession = sessionId;
     return { sessionId, modes: modeState(this.modeFor(sessionId)) };
   }

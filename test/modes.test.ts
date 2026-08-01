@@ -5,30 +5,41 @@ import {
   MODE_AGENT,
   MODE_FULL_ACCESS,
   MODE_READ_ONLY,
-  decisionForMode,
+  policyForMode,
   isKnownMode,
   modeState,
 } from "../src/modes";
 
 describe("session modes", () => {
   it("maps each mode to its permission decision", () => {
-    expect(decisionForMode(MODE_READ_ONLY)).toBe("block");
-    expect(decisionForMode(MODE_AGENT)).toBe("prompt");
-    expect(decisionForMode(MODE_FULL_ACCESS)).toBe("allow");
+    expect(policyForMode(MODE_READ_ONLY).decision).toBe("block");
+    expect(policyForMode(MODE_AGENT).decision).toBe("prompt");
+    expect(policyForMode(MODE_FULL_ACCESS).decision).toBe("allow");
+  });
+
+  it("gives Read Only a reason that says the refusal is session-wide", () => {
+    // A bare "denied" is indistinguishable from "not this time", and a model
+    // that can't tell the difference retries the same write until the turn
+    // burns out. The reason has to name the mode and discourage the retry.
+    const policy = policyForMode(MODE_READ_ONLY);
+    if (policy.decision !== "block") throw new Error("expected a block policy");
+    expect(policy.reason).toMatch(/read only/i);
+    expect(policy.reason).toMatch(/session/i);
+    expect(policy.reason).toMatch(/do not retry/i);
   });
 
   it("resolves an unknown mode to prompt, never to allow", () => {
     // A host on a newer/older build could set an id this one doesn't know.
     // Prompting keeps the agent usable; allowing would silently drop the gate.
-    expect(decisionForMode("something-else")).toBe("prompt");
-    expect(decisionForMode("")).toBe("prompt");
+    expect(policyForMode("something-else").decision).toBe("prompt");
+    expect(policyForMode("").decision).toBe("prompt");
   });
 
   it("defaults to the prompting mode", () => {
     // Pre-modes behaviour was "always ask". A new session must not become more
     // permissive just because modes were added.
     expect(DEFAULT_MODE_ID).toBe(MODE_AGENT);
-    expect(decisionForMode(DEFAULT_MODE_ID)).toBe("prompt");
+    expect(policyForMode(DEFAULT_MODE_ID).decision).toBe("prompt");
   });
 
   it("advertises exactly the three modes it can enforce", () => {

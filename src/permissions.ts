@@ -11,7 +11,7 @@
 //      cancelled immediately — fail-safe, never wedge, never silently allow.
 
 import type { PermissionOption, RequestPermissionResponse, ToolCallUpdate } from "@agentclientprotocol/sdk";
-import type { PermissionDecision } from "./modes";
+import type { PermissionPolicy } from "./modes";
 
 export const PERMISSION_MARKER = "__NOTESAGE_PERMISSION__";
 // Exported so test/protocol-constants.test.ts can lock it against the shipped
@@ -19,6 +19,10 @@ export const PERMISSION_MARKER = "__NOTESAGE_PERMISSION__";
 // own process, so the two halves of this protocol cannot share an import and
 // can only be kept in sync by assertion.
 export const ALLOW = "Allow";
+/** Settling a select with this prefix + text makes the text the block reason
+ *  the model sees, instead of the gate's generic "Tool call denied". Locked
+ *  against the extension's copy in test/protocol-constants.test.ts. */
+export const BLOCK_REASON_PREFIX = "__NOTESAGE_BLOCK__";
 
 export interface PermissionUiRequest {
   id: string;
@@ -60,7 +64,11 @@ export class PermissionBroker {
     /** Session-mode policy for the *active* session, read per request so a
      *  mode change mid-session takes effect on the next tool call without a
      *  respawn. Defaults to always prompting — the pre-modes behaviour. */
-    private readonly decide: () => PermissionDecision = () => "prompt",
+    private readonly policy: () => PermissionPolicy = () => ({ decision: "prompt" }),
+    /** Diagnostics sink. Auto-decided calls never reach the host, so without
+     *  this a Full Access session leaves no record of what was approved on the
+     *  user's behalf, or which mode approved it. */
+    private readonly log: (message: string) => void = () => {},
   ) {}
 
   get pendingCount(): number {
@@ -97,16 +105,20 @@ export class PermissionBroker {
     }
     // Session-mode policy. Read Only and Full Access are answered here without
     // ever reaching the host, so neither costs a round-trip and neither can be
-    // left hanging by an unresponsive client.
-    const decision = this.decide();
-    if (decision === "allow") {
+    // left hanging by an unresponsive client. Both are logged, because an
+    // auto-decided call is invisible to the host's approval surfaces.
+    const policy = this.policy();
+    if (policy.decision === "allow") {
+      this.log(`auto-allowed ${envelope.toolName} (mode policy)`);
       this.respond({ id: req.id, value: ALLOW });
       return true;
     }
-    if (decision === "block") {
-      // cancelled → the gate extension blocks the call and reports the reason
-      // to the model, so it can adapt rather than retry blindly.
-      this.respond({ id: req.id, cancelled: true });
+    if (policy.decision === "block") {
+      // Answered with a value, not `cancelled`: the prefix carries the reason
+      // through to the gate so the model learns the refusal is session-wide
+      // rather than a one-off denial it should retry.
+      this.log(`auto-blocked ${envelope.toolName} (mode policy)`);
+      this.respond({ id: req.id, value: `${BLOCK_REASON_PREFIX}${policy.reason}` });
       return true;
     }
     void this.ask(req.id, envelope.toolCallId, envelope.toolName);
