@@ -55,9 +55,11 @@ describe("PiAcpAgent", () => {
     const agent = makeAgent();
     const { sessionId } = await agent.newSession({ cwd: "/tmp", mcpServers: [] });
     await agent.newSession({ cwd: "/tmp", mcpServers: [] }); // move active away
-    await expect(
-      agent.loadSession({ sessionId, cwd: "/tmp", mcpServers: [] }),
-    ).resolves.toEqual({});
+    // The response now carries the session's mode state so a client rebuilding
+    // its picker after a reload doesn't fall back to the default (see
+    // acp-server-modes.test.ts); this test only cares that the switch happened.
+    const loaded = await agent.loadSession({ sessionId, cwd: "/tmp", mcpServers: [] });
+    expect(loaded.modes?.currentModeId).toBe("agent");
     // Prompting the re-loaded session must not need another switch to work.
     const res = await agent.prompt({ sessionId, prompt: [{ type: "text", text: "hi" }] });
     expect(res.stopReason).toBe("end_turn");

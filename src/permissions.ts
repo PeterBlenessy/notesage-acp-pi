@@ -11,6 +11,7 @@
 //      cancelled immediately — fail-safe, never wedge, never silently allow.
 
 import type { PermissionOption, RequestPermissionResponse, ToolCallUpdate } from "@agentclientprotocol/sdk";
+import type { PermissionDecision } from "./modes";
 
 export const PERMISSION_MARKER = "__NOTESAGE_PERMISSION__";
 // Exported so test/protocol-constants.test.ts can lock it against the shipped
@@ -56,6 +57,10 @@ export class PermissionBroker {
     private readonly requestPermission: RequestPermissionFn,
     private readonly respond: UiResponder,
     private readonly safetyTimeoutMs = 120_000,
+    /** Session-mode policy for the *active* session, read per request so a
+     *  mode change mid-session takes effect on the next tool call without a
+     *  respawn. Defaults to always prompting — the pre-modes behaviour. */
+    private readonly decide: () => PermissionDecision = () => "prompt",
   ) {}
 
   get pendingCount(): number {
@@ -87,6 +92,20 @@ export class PermissionBroker {
     if (!envelope) {
       // Not ours (or malformed) — answer immediately so pi can never wedge on
       // a UI surface the bridge doesn't understand. cancelled → gate blocks.
+      this.respond({ id: req.id, cancelled: true });
+      return true;
+    }
+    // Session-mode policy. Read Only and Full Access are answered here without
+    // ever reaching the host, so neither costs a round-trip and neither can be
+    // left hanging by an unresponsive client.
+    const decision = this.decide();
+    if (decision === "allow") {
+      this.respond({ id: req.id, value: ALLOW });
+      return true;
+    }
+    if (decision === "block") {
+      // cancelled → the gate extension blocks the call and reports the reason
+      // to the model, so it can adapt rather than retry blindly.
       this.respond({ id: req.id, cancelled: true });
       return true;
     }

@@ -1,6 +1,6 @@
 {
   "name": "notesage-acp-pi",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "// private": "Shipped as self-contained binaries on GitHub releases, not via npm — running it needs no Node or Bun runtime. Guards against an accidental publish.",
   "private": true,
   "type": "module",
