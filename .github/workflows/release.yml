@@ -30,6 +30,20 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # A tag that disagrees with package.json would publish assets whose
+      # binaries report a different version than the release they sit on, and
+      # the host pins this adapter by version. Cheaper to refuse the release
+      # than to unpick a wrong one after the fact.
+      - name: Refuse a tag that disagrees with package.json
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(node -p "require('./package.json').version")"
+          if [ "$tag" != "$pkg" ]; then
+            echo "::error::tag $GITHUB_REF_NAME implies version $tag, package.json says $pkg"
+            exit 1
+          fi
+          echo "tag $GITHUB_REF_NAME matches package.json $pkg"
+
       - name: Gate on the test suite
         run: |
           pnpm typecheck
